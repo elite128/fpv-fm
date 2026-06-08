@@ -63,13 +63,22 @@ def reload_config_in_memory(cfg: dict) -> None:
     PUBLIC_HOSTNAME = host_env if host_env else CONFIG.get("server", {}).get("public_hostname", "rotorhazard.localdomain")
 
     port_env = os.environ.get("PORT", "").strip()
-    PUBLIC_PORT = int(port_env) if port_env else int(CONFIG.get("server", {}).get("port", 8000))
+    bind_port = int(port_env) if port_env else int(CONFIG.get("server", {}).get("port", 8000))
 
     https_env = os.environ.get("USE_HTTPS", "").strip()
     if https_env:
         USE_HTTPS = https_env.lower() in ("true", "1", "yes")
     else:
         USE_HTTPS = bool(CONFIG.get("server", {}).get("use_https", False))
+
+    public_port_env = os.environ.get("PUBLIC_PORT", "").strip()
+    if public_port_env:
+        PUBLIC_PORT = int(public_port_env)
+    else:
+        if "onrender.com" in PUBLIC_HOSTNAME or "fly.dev" in PUBLIC_HOSTNAME:
+            PUBLIC_PORT = 443 if USE_HTTPS else 80
+        else:
+            PUBLIC_PORT = int(CONFIG.get("server", {}).get("port", bind_port))
     ADMIN_PASSWORD = str(CONFIG.get("admin", {}).get("password", "fpvrace"))
     YELLOW_SPACING_MHZ = int(CONFIG.get("conflicts", {}).get("warning_mhz", 25))
     RED_SPACING_MHZ = int(CONFIG.get("conflicts", {}).get("critical_mhz", 15))
@@ -225,6 +234,8 @@ def normalize_channel(channel: Optional[str]) -> Optional[str]:
 def server_url() -> str:
     host = PUBLIC_HOSTNAME.strip() if PUBLIC_HOSTNAME else get_lan_ip()
     scheme = "https" if USE_HTTPS else "http"
+    if PUBLIC_PORT in (80, 443):
+        return f"{scheme}://{host}"
     return f"{scheme}://{host}:{PUBLIC_PORT}"
 
 
