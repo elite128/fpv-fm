@@ -550,19 +550,19 @@ button.wide {
 /* Channel Grids */
 .channel-grid, .admin-channel-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(95px, 1fr));
+  gap: 0.5rem;
 }
 
 .channel-tile {
   position: relative;
-  min-height: 96px;
+  min-height: 64px;
   text-align: left;
   border: 2px solid var(--green-border);
   background: var(--card-solid);
   color: var(--text);
-  border-radius: 16px;
-  padding: 0.8rem;
+  border-radius: 10px;
+  padding: 0.4rem 0.5rem;
   cursor: pointer;
   box-shadow: 0 4px 12px var(--shadow);
   display: flex;
@@ -613,25 +613,27 @@ button.wide {
 }
 
 .tile-name {
-  font-size: 1.25rem;
+  font-size: 0.95rem;
   font-weight: 900;
   color: var(--text);
+  line-height: 1.1;
 }
 
 .tile-freq {
-  font-size: 0.8rem;
+  font-size: 0.65rem;
   color: var(--muted);
   font-weight: 500;
+  margin-top: 0.1rem;
 }
 
 .tile-owner {
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: var(--red);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-top: 0.25rem;
+  margin-top: 0.1rem;
 }
 
 .channel-tile.mine .tile-owner {
@@ -639,11 +641,11 @@ button.wide {
 }
 
 .tile-status {
-  font-size: 0.7rem;
+  font-size: 0.58rem;
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
-  margin-top: 0.2rem;
+  margin-top: 0.1rem;
 }
 
 .channel-tile.used .tile-status { color: var(--red); }
