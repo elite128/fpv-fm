@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import time
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -114,8 +115,10 @@ class Pilot:
     created_by: str = "self"  # self/admin/import
     updated_at: float = 0.0
     ip_address: Optional[str] = None
+    device_id: Optional[str] = None
 
 
+event_id: str = ""
 pilots: Dict[str, Pilot] = {}
 locked_channels: Set[str] = set()
 connections: List[WebSocket] = []
@@ -124,6 +127,7 @@ connections: List[WebSocket] = []
 def save_persistence() -> None:
     try:
         data = {
+            "event_id": event_id,
             "pilots": {name: asdict(p) for name, p in pilots.items()},
             "locked_channels": list(locked_channels)
         }
@@ -134,12 +138,16 @@ def save_persistence() -> None:
 
 
 def load_persistence() -> None:
-    global pilots, locked_channels
+    global pilots, locked_channels, event_id
     if not PERSISTENCE_PATH.exists():
+        event_id = uuid.uuid4().hex
         return
     try:
         with PERSISTENCE_PATH.open("r", encoding="utf-8") as f:
             data = json.load(f)
+            event_id = data.get("event_id")
+            if not event_id:
+                event_id = uuid.uuid4().hex
             raw_pilots = data.get("pilots", {})
             for name, p in raw_pilots.items():
                 pilots[name] = Pilot(
@@ -148,23 +156,52 @@ def load_persistence() -> None:
                     frequency=p.get("frequency"),
                     created_by=p.get("created_by", "self"),
                     updated_at=p.get("updated_at", 0.0),
-                    ip_address=p.get("ip_address")
+                    ip_address=p.get("ip_address"),
+                    device_id=p.get("device_id")
                 )
             locked_channels = set(data.get("locked_channels", []))
     except Exception as e:
         print(f"Error loading persistence: {e}")
 
 
-def check_ip_limit(name: str, client_ip: Optional[str]) -> None:
-    if not client_ip:
+def resolve_device_registration(name: str, device_id: Optional[str]) -> None:
+    if not device_id:
         return
-    # Check if this IP has already registered a DIFFERENT pilot name
+    # Find if this device ID has already registered a DIFFERENT pilot name
+    old_pilot_name = None
     for p in pilots.values():
-        if p.ip_address == client_ip and p.name != name:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Registration denied: Only 1 pilot per device/IP allowed (already occupied by '{p.name}')."
-            )
+        if p.device_id == device_id and p.name != name:
+            old_pilot_name = p.name
+            break
+
+    if old_pilot_name:
+        if name not in pilots:
+            # Rename the existing pilot in place to preserve their channel!
+            p = pilots.pop(old_pilot_name)
+            p.name = name
+            p.updated_at = time.time()
+            pilots[name] = p
+        else:
+            # The new name is already taken.
+            other = pilots[name]
+            if other.device_id and other.device_id != device_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Registration denied: The name '{name}' is already taken by another device."
+                )
+            # Claim it (we'll set device_id and details in calling code)
+            # and release the old pilot name to enforce the 1 pilot per device limit.
+            pilots.pop(old_pilot_name)
+    else:
+        # Device has no other registered pilot. Check if name is taken by a different device.
+        if name in pilots:
+            other = pilots[name]
+            if other.device_id and other.device_id != device_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Registration denied: The name '{name}' is already taken by another device."
+                )
+
 
 
 # Load persistence immediately on module load
@@ -178,12 +215,14 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 class JoinRequest(BaseModel):
     name: str
+    device_id: Optional[str] = None
 
 
 class ChannelRequest(BaseModel):
     name: str
     channel: Optional[str] = None
     force: bool = False
+    device_id: Optional[str] = None
 
 
 class AdminRequest(BaseModel):
@@ -384,6 +423,7 @@ def state(current_user: Optional[str] = None) -> dict:
     rows = pilot_rows()
     return {
         "version": APP_VERSION,
+        "event_id": event_id,
         "event_name": EVENT_NAME,
         "server_url": server_url(),
         "display_url": f"{server_url()}/display",
@@ -485,12 +525,14 @@ async def join(req: JoinRequest, request: Request):
     if not name:
         raise HTTPException(status_code=400, detail="Name missing")
     client_ip = request.client.host if request.client else None
-    check_ip_limit(name, client_ip)
+    resolve_device_registration(name, req.device_id)
     if name not in pilots:
-        pilots[name] = Pilot(name=name, updated_at=time.time(), ip_address=client_ip)
+        pilots[name] = Pilot(name=name, updated_at=time.time(), ip_address=client_ip, device_id=req.device_id)
     else:
         pilots[name].updated_at = time.time()
-        if not pilots[name].ip_address:
+        if req.device_id:
+            pilots[name].device_id = req.device_id
+        if client_ip:
             pilots[name].ip_address = client_ip
     save_persistence()
     await broadcast()
@@ -503,12 +545,14 @@ async def select_channel(req: ChannelRequest, request: Request):
     if not name:
         raise HTTPException(status_code=400, detail="Name missing")
     client_ip = request.client.host if request.client else None
-    check_ip_limit(name, client_ip)
+    resolve_device_registration(name, req.device_id)
     if name not in pilots:
-        pilots[name] = Pilot(name=name, updated_at=time.time(), ip_address=client_ip)
+        pilots[name] = Pilot(name=name, updated_at=time.time(), ip_address=client_ip, device_id=req.device_id)
     else:
         pilots[name].updated_at = time.time()
-        if not pilots[name].ip_address:
+        if req.device_id:
+            pilots[name].device_id = req.device_id
+        if client_ip:
             pilots[name].ip_address = client_ip
     maybe = set_pilot_channel(name, req.channel, created_by="self", force=req.force)
     if maybe:
@@ -636,12 +680,28 @@ async def admin_save_config(req: SaveConfigRequest):
 
 @app.post("/api/admin/reset")
 async def admin_reset(req: AdminRequest):
+    global event_id
     require_admin(req.password)
     pilots.clear()
     locked_channels.clear()
+    event_id = uuid.uuid4().hex
     save_persistence()
     await broadcast()
     return {"ok": True}
+
+
+@app.post("/api/admin/reset-pilot-device")
+async def admin_reset_pilot_device(req: AdminPilotRequest):
+    require_admin(req.password)
+    name = normalize_name(req.name)
+    if name not in pilots:
+        raise HTTPException(status_code=404, detail="Pilot not found")
+    pilots[name].device_id = None
+    pilots[name].ip_address = None
+    save_persistence()
+    await broadcast()
+    return {"ok": True}
+
 
 
 @app.websocket("/ws")
