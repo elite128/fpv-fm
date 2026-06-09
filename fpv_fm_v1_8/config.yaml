@@ -38,13 +38,13 @@ channel_groups:
     DJI_V1_7: 5914
     DJI_V1_8: 5839
   DJI_O3O4_25Mbps:
-    DJIO3O4_1: 5669
-    DJIO3O4_2: 5705
-    DJIO3O4_3: 5768
-    DJIO3O4_4: 5804
-    DJIO3O4_5: 5839
-    DJIO3O4_6: 5876
-    DJIO3O4_7: 5912
+    DJI_1: 5669
+    DJI_2: 5705
+    DJI_3: 5768
+    DJI_4: 5804
+    DJI_5: 5839
+    DJI_6: 5876
+    DJI_7: 5912
   Raceband:
     R1: 5658
     R2: 5695
